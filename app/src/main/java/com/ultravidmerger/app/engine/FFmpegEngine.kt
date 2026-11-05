@@ -209,10 +209,10 @@ object FFmpegEngine {
         withContext(Dispatchers.IO) {
             val f = File(path)
             if (!f.exists() || f.length() < 1024) {
-                return@withContext VideoValidation(false, 0, 0, 0, "file missing or too small")
+                return@withContext VideoValidation(false, 0L, 0, 0, 0L, "file missing or too small")
             }
             val info = VideoAnalyzer.analyze(context, Uri.fromFile(f))
-                ?: return@withContext VideoValidation(false, 0, 0, f.length(), "file not demuxable")
+                ?: return@withContext VideoValidation(false, 0L, 0, 0, f.length(), "file not demuxable")
 
             val ok = info.width > 0 && info.height > 0 && info.durationMs > 0
             VideoValidation(

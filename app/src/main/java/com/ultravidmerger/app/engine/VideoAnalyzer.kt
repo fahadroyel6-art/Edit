@@ -60,7 +60,8 @@ object VideoAnalyzer {
 
     // ------------------------------------------------------------- FFprobe
 
-    private fun probeWithFfmpeg(context: Context, uri: Uri): VideoInfo? = try {
+    private fun probeWithFfmpeg(context: Context, uri: Uri): VideoInfo? {
+        return try {
         EngineMonitor.set(Component.FFPROBE, ComponentStatus.BUSY, "Probing…")
 
         val saf = FFmpegKitConfig.getSafParameterForRead(context, uri)
@@ -126,10 +127,11 @@ object VideoAnalyzer {
             audioStreamCount = audioCount,
             containerFormat = mediaInfo.format ?: ""
         )
-    } catch (e: Exception) {
-        DiagnosticLogger.warn(TAG, "FFprobe failed: ${e.message}")
-        EngineMonitor.set(Component.FFPROBE, ComponentStatus.WARN, e.message ?: "failed")
-        null
+        } catch (e: Exception) {
+            DiagnosticLogger.warn(TAG, "FFprobe failed: ${e.message}")
+            EngineMonitor.set(Component.FFPROBE, ComponentStatus.WARN, e.message ?: "failed")
+            null
+        }
     }
 
     private fun parseRate(s: String?): Double? {

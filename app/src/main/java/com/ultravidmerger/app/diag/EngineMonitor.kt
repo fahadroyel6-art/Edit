@@ -44,7 +44,7 @@ object EngineMonitor {
     private val _currentJobId = MutableStateFlow<String?>(null)
     val currentJobId: StateFlow<String?> = _currentJobId
 
-    private var lastSuccess: String = "—"
+    private var lastSuccessText: String = "—"
     private val _lastSuccessFlow = MutableStateFlow("—")
     val lastSuccess: StateFlow<String> = _lastSuccessFlow
 
@@ -80,7 +80,7 @@ object EngineMonitor {
     fun finishJob(success: Boolean, summary: String) {
         val job = _currentJobId.value
         if (success) {
-            lastSuccess = summary
+            lastSuccessText = summary
             _lastSuccessFlow.value = summary
         }
         DiagnosticLogger.info("Job", "Job finished (success=$success): $summary", job)
@@ -89,7 +89,7 @@ object EngineMonitor {
     }
 
     fun markSuccess(what: String) {
-        lastSuccess = what
+        lastSuccessText = what
         _lastSuccessFlow.value = what
     }
 

@@ -209,7 +209,7 @@ object DiagnosticLogger {
         // Trim the active file
         files.lastOrNull()?.let { f ->
             if (f.length() > MAX_FILE_BYTES) {
-                val keepFrom = f.length() - (MAX_FILE_BYTES / 2)
+                val keepFrom = ((f.length() - MAX_FILE_BYTES / 2).coerceAtLeast(0L)).toInt()
                 runCatching {
                     val text = f.readText()
                     f.writeText(text.substring(keepFrom.coerceAtMost(text.length)))
