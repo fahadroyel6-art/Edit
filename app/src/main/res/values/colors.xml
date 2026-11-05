@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_dark">#0A0F0D</color>
+    <color name="surface">#141C18</color>
+    <color name="surface_variant">#1C2822</color>
+    <color name="stroke">#24352C</color>
+    <color name="accent">#10B981</color>
+    <color name="accent_dark">#059669</color>
+    <color name="text_primary">#F0FDF4</color>
+    <color name="text_secondary">#9CA3AF</color>
+    <color name="text_tertiary">#6B7280</color>
+    <color name="danger">#EF4444</color>
+    <color name="track_color">#1C2822</color>
+</resources>

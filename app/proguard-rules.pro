@@ -1,0 +1,5 @@
+-keep class com.ultravidmerger.app.** { *; }
+-keep class androidx.media3.** { *; }
+-dontwarn androidx.media3.**
+-keepattributes *Annotation*
+-keepattributes SourceFile,LineNumberTable
