@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <cache-path name="cache_videos" path="merger/" />
-    <files-path name="files_videos" path="." />
-    <external-cache-path name="external_cache" path="." />
+    <cache-path name="cache_merge" path="merge/" />
+    <cache-path name="cache_root" path="." />
+    <files-path name="diag" path="diagnostics/" />
+    <files-path name="crash" path="crash/" />
 </paths>

@@ -1,7 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Ultra Video Merger</string>
-    <string name="select_videos">Select Videos</string>
-    <string name="start_merging">Start Merging</string>
-    <string name="cancel">Cancel</string>
+    <string name="app_name">Ultra Video Merger Pro</string>
 </resources>

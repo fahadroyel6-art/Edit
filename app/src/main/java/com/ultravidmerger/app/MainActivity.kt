@@ -3,7 +3,6 @@ package com.ultravidmerger.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
@@ -11,21 +10,24 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import com.ultravidmerger.app.databinding.ActivityMainBinding
-import com.ultravidmerger.app.service.MergeService
+import com.ultravidmerger.app.diag.CrashStore
+import com.ultravidmerger.app.diag.DiagnosticLogger
 import com.ultravidmerger.app.ui.CompletedFragment
+import com.ultravidmerger.app.ui.DiagnosticCenterFragment
 import com.ultravidmerger.app.ui.HomeFragment
 import com.ultravidmerger.app.ui.MergeFragment
 import com.ultravidmerger.app.ui.ProcessingFragment
+import com.ultravidmerger.app.ui.SelfTestFragment
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private var selectedVideos: MutableList<VideoInfo> = mutableListOf()
+    private val selected = mutableListOf<VideoInfo>()
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        // Continue regardless of permission result
+    ) { granted ->
+        DiagnosticLogger.info("Permissions", "Result: ${granted.entries.joinToString { "${it.key.substringAfterLast('.')}=${it.value}" }}")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,91 +35,78 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        checkPermissions()
+        requestPermissionsIfNeeded()
+
+        // Surface an unrecovered crash on first launch after it happened
+        CrashStore.lastCrash()?.let {
+            DiagnosticLogger.warn("Crash", "Previous session ended with an uncaught exception (report stored)")
+        }
 
         if (savedInstanceState == null) {
-            showFragment(HomeFragment())
+            showFragment(HomeFragment(), addToBackStack = false)
         }
     }
 
-    private fun checkPermissions() {
-        val permissions = mutableListOf<String>()
+    private fun requestPermissionsIfNeeded() {
+        val wanted = mutableListOf<String>()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO)
-                != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
-            }
-        } else {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-                != PackageManager.PERMISSION_GRANTED) {
-                permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-            }
+            if (!granted(Manifest.permission.POST_NOTIFICATIONS)) wanted += Manifest.permission.POST_NOTIFICATIONS
+            if (!granted(Manifest.permission.READ_MEDIA_VIDEO)) wanted += Manifest.permission.READ_MEDIA_VIDEO
+        } else if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            if (!granted(Manifest.permission.READ_EXTERNAL_STORAGE)) wanted += Manifest.permission.READ_EXTERNAL_STORAGE
         }
-
-        if (permissions.isNotEmpty()) {
-            permissionLauncher.launch(permissions.toTypedArray())
-        }
+        if (wanted.isNotEmpty()) permissionLauncher.launch(wanted.toTypedArray())
     }
+
+    private fun granted(p: String) =
+        ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+
+    // ---------------------------------------------------------------- nav
 
     fun showFragment(fragment: Fragment, addToBackStack: Boolean = true) {
-        val transaction = supportFragmentManager.beginTransaction()
+        supportFragmentManager.beginTransaction()
             .replace(R.id.fragmentContainer, fragment)
-        if (addToBackStack) {
-            transaction.addToBackStack(null)
-        }
-        transaction.commit()
+            .apply { if (addToBackStack) addToBackStack(null) }
+            .commit()
     }
 
-    fun getSelectedVideos(): List<VideoInfo> = selectedVideos.toList()
-
-    fun addVideo(video: VideoInfo) {
-        selectedVideos.add(video)
+    fun openHome() {
+        supportFragmentManager.popBackStack(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
+        showFragment(HomeFragment(), addToBackStack = false)
     }
 
-    fun removeVideo(position: Int) {
-        if (position in selectedVideos.indices) {
-            selectedVideos.removeAt(position)
-        }
-    }
+    fun openMerge() = showFragment(MergeFragment())
+    fun openProcessing() = showFragment(ProcessingFragment(), addToBackStack = false)
+    fun openDiagnostics() = showFragment(DiagnosticCenterFragment())
+    fun openSelfTest() = showFragment(SelfTestFragment())
 
+    fun openCompleted(state: com.ultravidmerger.app.service.MergeUiState) =
+        showFragment(
+            CompletedFragment.newInstance(
+                galleryUri = state.galleryUri,
+                tempPath = state.outputPath,
+                durationMs = state.durationMs,
+                fileBytes = state.fileBytes,
+                engineUsed = state.engineUsed,
+                lossless = state.lossless
+            ),
+            addToBackStack = false
+        )
+
+    // ----------------------------------------------------------- selection
+
+    fun videos(): List<VideoInfo> = selected.toList()
+    fun addVideo(v: VideoInfo) { selected += v }
+    fun removeVideo(index: Int) { if (index in selected.indices) selected.removeAt(index) }
     fun moveVideo(from: Int, to: Int) {
-        if (from in selectedVideos.indices && to in selectedVideos.indices) {
-            val item = selectedVideos.removeAt(from)
-            selectedVideos.add(to, item)
-        }
+        if (from !in selected.indices || to !in selected.indices) return
+        selected.add(to, selected.removeAt(from))
     }
+    fun clearVideos() = selected.clear()
 
-    fun clearVideos() {
-        selectedVideos.clear()
-    }
-
-    fun startMerge(videos: List<VideoInfo>, mergeMode: String, outputPath: String, targetWidth: Int, targetHeight: Int, targetFps: Int) {
-        val uris = ArrayList(videos.map { it.uri })
-        
-        val intent = Intent(this, MergeService::class.java).apply {
-            putParcelableArrayListExtra("video_uris", uris)
-            putExtra("output_path", outputPath)
-            putExtra("merge_mode", mergeMode)
-            putExtra("target_width", targetWidth)
-            putExtra("target_height", targetHeight)
-            putExtra("target_fps", targetFps)
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
-        }
-
-        showFragment(ProcessingFragment())
-    }
-
-    fun showCompleted(outputPath: String, durationMs: Long, fileSize: Long) {
-        showFragment(CompletedFragment.newInstance(outputPath, durationMs, fileSize))
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        if (com.ultravidmerger.app.service.MergeStateHolder.state.value.isActive) openProcessing()
     }
 }

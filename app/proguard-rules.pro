@@ -1,5 +1,7 @@
+-keep class com.arthenica.ffmpegkit.** { *; }
 -keep class com.ultravidmerger.app.** { *; }
 -keep class androidx.media3.** { *; }
+-dontwarn com.arthenica.ffmpegkit.**
 -dontwarn androidx.media3.**
 -keepattributes *Annotation*
 -keepattributes SourceFile,LineNumberTable

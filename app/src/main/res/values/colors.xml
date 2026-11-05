@@ -6,6 +6,7 @@
     <color name="stroke">#24352C</color>
     <color name="accent">#10B981</color>
     <color name="accent_dark">#059669</color>
+    <color name="warn">#FBBF24</color>
     <color name="text_primary">#F0FDF4</color>
     <color name="text_secondary">#9CA3AF</color>
     <color name="text_tertiary">#6B7280</color>

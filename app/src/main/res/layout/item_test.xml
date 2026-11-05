@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="vertical" android:paddingTop="8dp" android:paddingBottom="8dp"
+    android:paddingStart="4dp" android:paddingEnd="4dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/tvId" android:layout_width="36dp" android:layout_height="wrap_content"
+            android:text="T01" android:textColor="@color/accent" android:textSize="10sp"
+            android:textStyle="bold" android:fontFamily="monospace" />
+        <TextView android:id="@+id/tvTitle" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="" android:textColor="@color/text_primary"
+            android:textSize="12sp" android:textStyle="bold" />
+        <TextView android:id="@+id/tvStatus" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="PENDING" android:textColor="@color/text_tertiary" android:textSize="10sp"
+            android:textStyle="bold" android:layout_marginStart="6dp" />
+    </LinearLayout>
+    <TextView android:id="@+id/tvDetail" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="" android:textColor="@color/text_secondary" android:textSize="10sp"
+        android:layout_marginTop="2dp" />
+    <TextView android:id="@+id/tvDuration" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="" android:textColor="@color/text_tertiary" android:textSize="9sp" />
+</LinearLayout>

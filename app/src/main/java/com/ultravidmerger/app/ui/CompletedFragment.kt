@@ -9,152 +9,97 @@ import android.view.ViewGroup
 import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import com.ultravidmerger.app.MainActivity
+import com.ultravidmerger.app.VideoInfo
 import com.ultravidmerger.app.databinding.FragmentCompletedBinding
-import com.ultravidmerger.app.service.MergeService
 import java.io.File
 
 class CompletedFragment : Fragment() {
 
-    private var _binding: FragmentCompletedBinding? = null
-    private val binding get() = _binding!!
+    private var _b: FragmentCompletedBinding? = null
+    private val b get() = _b!!
 
-    private var outputPath: String = ""
-    private var durationMs: Long = 0L
-    private var fileSize: Long = 0L
+    private var galleryUri: String? = null
+    private var tempPath: String? = null
+    private var durationMs = 0L
+    private var fileBytes = 0L
+    private var engineUsed = ""
+    private var lossless = true
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        outputPath = arguments?.getString(ARG_PATH) ?: ""
-        durationMs = arguments?.getLong(ARG_DURATION) ?: 0L
-        fileSize = arguments?.getLong(ARG_SIZE) ?: 0L
+    override fun onCreate(s: Bundle?) {
+        super.onCreate(s)
+        val a = arguments ?: return
+        galleryUri = a.getString(A_URI); tempPath = a.getString(A_TMP)
+        durationMs = a.getLong(A_DUR); fileBytes = a.getLong(A_BYTES)
+        engineUsed = a.getString(A_ENGINE) ?: ""; lossless = a.getBoolean(A_LOSSLESS, true)
     }
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        _binding = FragmentCompletedBinding.inflate(inflater, container, false)
-        return binding.root
+    override fun onCreateView(i: LayoutInflater, c: ViewGroup?, s: Bundle?): View {
+        _b = FragmentCompletedBinding.inflate(i, c, false); return b.root
     }
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
+    override fun onViewCreated(v: View, s: Bundle?) {
+        super.onViewCreated(v, s)
 
-        binding.tvDuration.text = "দৈর্ঘ্য: ${formatTime(durationMs)}"
-        binding.tvFileSize.text = "সাইজ: ${formatSize(fileSize)}"
+        b.tvDuration.text = "দৈর্ঘ্য: ${VideoInfo.formatDuration(durationMs)}"
+        b.tvSize.text = "সাইজ: ${VideoInfo.formatBytes(fileBytes)}"
+        b.tvEngine.text = "ইঞ্জিন: $engineUsed"
+        b.tvMode.text = if (lossless) "✅ Lossless — কোনো quality loss হয়নি" else "⚠️ Re-encode করা হয়েছে"
+        b.tvSavedTo.text = if (galleryUri != null) "সেভ: Movies/UltraVideoMerger" else "সেভ হয়নি"
 
-        val galleryUri = MergeService.savedGalleryUri
-        binding.tvSavedAs.text = if (galleryUri != null) {
-            "Gallery তে সেভ হয়েছে (Movies/UltraVideoMerger)"
-        } else {
-            "⚠️ Gallery তে সেভ করা যায়নি"
+        b.btnPlay.setOnClickListener { open(true) }
+        b.btnShare.setOnClickListener { open(false) }
+        b.btnHome.setOnClickListener { (activity as? MainActivity)?.openHome() }
+        b.btnNew.setOnClickListener {
+            (activity as? MainActivity)?.let { it.clearVideos(); it.openHome() }
         }
-
-        binding.btnPlay.setOnClickListener { playVideo(galleryUri) }
-        binding.btnShare.setOnClickListener { shareVideo(galleryUri) }
-        binding.btnNewMerge.setOnClickListener {
-            val activity = activity as? MainActivity ?: return@setOnClickListener
-            activity.clearVideos()
-            activity.showFragment(HomeFragment(), addToBackStack = false)
-        }
-        binding.btnBackHome.setOnClickListener {
-            val activity = activity as? MainActivity ?: return@setOnClickListener
-            activity.clearVideos()
-            activity.showFragment(HomeFragment(), addToBackStack = false)
-        }
+        b.btnDiagnostics.setOnClickListener { (activity as? MainActivity)?.openDiagnostics() }
     }
 
-    private fun resolveUri(galleryUri: String?): Uri? {
+    private fun resolve(): Uri? {
         galleryUri?.let { return Uri.parse(it) }
-        val file = File(outputPath)
-        if (!file.exists()) return null
-        return try {
-            FileProvider.getUriForFile(
-                requireContext(),
-                "${requireContext().packageName}.fileprovider",
-                file
-            )
-        } catch (e: Exception) {
-            null
-        }
+        val f = tempPath?.let { File(it) } ?: return null
+        if (!f.exists()) return null
+        return runCatching {
+            FileProvider.getUriForFile(requireContext(), "${requireContext().packageName}.fileprovider", f)
+        }.getOrNull()
     }
 
-    private fun playVideo(galleryUri: String?) {
-        val uri = resolveUri(galleryUri) ?: run {
-            android.widget.Toast.makeText(
-                requireContext(), "ফাইল পাওয়া যায়নি", android.widget.Toast.LENGTH_SHORT
-            ).show()
+    private fun open(play: Boolean) {
+        val uri = resolve() ?: run {
+            android.widget.Toast.makeText(requireContext(), "ফাইল পাওয়া যায়নি", android.widget.Toast.LENGTH_SHORT).show()
             return
         }
-        try {
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "video/mp4")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(intent, "Play with"))
-        } catch (e: Exception) {
-            android.widget.Toast.makeText(
-                requireContext(), "Play করা যায়নি: ${e.message}", android.widget.Toast.LENGTH_SHORT
-            ).show()
+        val intent = if (play) Intent(Intent.ACTION_VIEW) else Intent(Intent.ACTION_SEND)
+        intent.apply {
+            setDataAndType(uri, "video/mp4")
+            if (!play) putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+        runCatching { startActivity(Intent.createChooser(intent, if (play) "Play" else "Share")) }
     }
 
-    private fun shareVideo(galleryUri: String?) {
-        val uri = resolveUri(galleryUri) ?: run {
-            android.widget.Toast.makeText(
-                requireContext(), "ফাইল পাওয়া যায়নি", android.widget.Toast.LENGTH_SHORT
-            ).show()
-            return
-        }
-        try {
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "video/mp4"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            startActivity(Intent.createChooser(intent, "Share"))
-        } catch (e: Exception) {
-            android.widget.Toast.makeText(
-                requireContext(), "Share করা যায়নি: ${e.message}", android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
-    }
-
-    private fun formatTime(ms: Long): String {
-        val totalSec = ms / 1000
-        val h = totalSec / 3600
-        val m = (totalSec % 3600) / 60
-        val s = totalSec % 60
-        return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
-        else String.format("%d:%02d", m, s)
-    }
-
-    private fun formatSize(bytes: Long): String = when {
-        bytes < 1024 -> "$bytes B"
-        bytes < 1024 * 1024 -> String.format("%.1f KB", bytes / 1024.0)
-        bytes < 1024L * 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024))
-        else -> String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024))
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
-    }
+    override fun onDestroyView() { super.onDestroyView(); _b = null }
 
     companion object {
-        private const val ARG_PATH = "path"
-        private const val ARG_DURATION = "duration"
-        private const val ARG_SIZE = "size"
+        private const val A_URI = "gallery_uri"
+        private const val A_TMP = "temp_path"
+        private const val A_DUR = "duration"
+        private const val A_BYTES = "bytes"
+        private const val A_ENGINE = "engine"
+        private const val A_LOSSLESS = "lossless"
 
-        fun newInstance(path: String, durationMs: Long, fileSize: Long): CompletedFragment {
-            val f = CompletedFragment()
-            f.arguments = Bundle().apply {
-                putString(ARG_PATH, path)
-                putLong(ARG_DURATION, durationMs)
-                putLong(ARG_SIZE, fileSize)
+        fun newInstance(
+            galleryUri: String?, tempPath: String?, durationMs: Long,
+            fileBytes: Long, engineUsed: String, lossless: Boolean
+        ) = CompletedFragment().apply {
+            arguments = Bundle().apply {
+                putString(A_URI, galleryUri)
+                putString(A_TMP, tempPath)
+                putLong(A_DUR, durationMs)
+                putLong(A_BYTES, fileBytes)
+                putString(A_ENGINE, engineUsed)
+                putBoolean(A_LOSSLESS, lossless)
             }
-            return f
         }
     }
 }

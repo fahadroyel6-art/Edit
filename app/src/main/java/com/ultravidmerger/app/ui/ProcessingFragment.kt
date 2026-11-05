@@ -1,133 +1,102 @@
 package com.ultravidmerger.app.ui
 
-import android.content.Intent
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.os.SystemClock
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.ultravidmerger.app.MainActivity
+import com.ultravidmerger.app.VideoInfo
 import com.ultravidmerger.app.databinding.FragmentProcessingBinding
-import com.ultravidmerger.app.merger.LosslessMergeEngine
+import com.ultravidmerger.app.service.JobPhase
 import com.ultravidmerger.app.service.MergeService
+import com.ultravidmerger.app.service.MergeStateHolder
+import kotlinx.coroutines.launch
 
 class ProcessingFragment : Fragment() {
 
-    private var _binding: FragmentProcessingBinding? = null
-    private val binding get() = _binding!!
+    private var _b: FragmentProcessingBinding? = null
+    private val b get() = _b!!
+    private var navigated = false
 
-    private val handler = Handler(Looper.getMainLooper())
-    private var startTime = 0L
-    private var lastProgress = -1f
-    private var completedNavigated = false
-    private var paused = false
+    override fun onCreateView(i: LayoutInflater, c: ViewGroup?, s: Bundle?): View {
+        _b = FragmentProcessingBinding.inflate(i, c, false); return b.root
+    }
 
-    private val pollRunnable = object : Runnable {
-        override fun run() {
-            pollState()
-            handler.postDelayed(this, 400)
+    override fun onViewCreated(v: View, s: Bundle?) {
+        super.onViewCreated(v, s)
+
+        b.btnCancel.setOnClickListener {
+            MergeServiceAction.cancel(requireContext())
         }
-    }
+        b.btnPause.setOnClickListener {
+            val st = MergeStateHolder.state.value
+            if (st.phase == JobPhase.PAUSED) MergeServiceAction.resume(requireContext())
+            else MergeServiceAction.pause(requireContext())
+        }
+        b.btnError.setOnClickListener { showError() }
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View {
-        _binding = FragmentProcessingBinding.inflate(inflater, container, false)
-        return binding.root
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        startTime = SystemClock.elapsedRealtime()
-
-        binding.btnPause.setOnClickListener {
-            val activity = activity as? MainActivity ?: return@setOnClickListener
-            val intent = Intent(activity, MergeService::class.java).apply {
-                action = if (paused) MergeService.ACTION_RESUME else MergeService.ACTION_PAUSE
+        lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                MergeStateHolder.state.collect { render(it) }
             }
-            activity.startService(intent)
-            paused = !paused
-            binding.btnPause.text = if (paused) "Resume" else "Pause"
-        }
-
-        binding.btnCancel.setOnClickListener {
-            val activity = activity as? MainActivity ?: return@setOnClickListener
-            val intent = Intent(activity, MergeService::class.java).apply {
-                action = MergeService.ACTION_CANCEL
-            }
-            activity.startService(intent)
-            LosslessMergeEngine.cancel()
-            Toast.makeText(requireContext(), "Cancel করা হচ্ছে...", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun pollState() {
-        val state = MergeService.currentState
-        val progress = (state.progress * 100).toInt()
+    private fun render(st: com.ultravidmerger.app.service.MergeUiState) {
+        val pct = (st.progress * 100).toInt().coerceIn(0, 100)
+        b.progressBar.progress = pct
+        b.tvPercent.text = "$pct%"
+        b.tvStatus.text = st.status
+        b.tvMode.text = if (st.lossless) "Lossless stream copy" else "Compatibility re-encode"
+        b.tvElapsed.text = "সময়: ${VideoInfo.formatDuration(st.elapsedMs)}"
+        b.tvRemaining.text =
+            if (st.remainingMs > 0) "বাকি: ~${VideoInfo.formatDuration(st.remainingMs)}" else "বাকি: হিসাব হচ্ছে…"
 
-        binding.progressBar.progress = progress
-        binding.tvPercent.text = "$progress%"
-        binding.tvStatus.text = state.status
+        b.tvThermal.visibility = if (st.thermalWarning != null) View.VISIBLE else View.GONE
+        st.thermalWarning?.let { b.tvThermal.text = "🌡️ $it" }
 
-        val elapsed = SystemClock.elapsedRealtime() - startTime
-        binding.tvElapsed.text = "সময়: ${formatTime(elapsed)}"
+        b.btnPause.text = if (st.phase == JobPhase.PAUSED) "Resume" else "Pause"
+        b.btnError.visibility =
+            if (st.phase == JobPhase.FAILED && st.errorReport != null) View.VISIBLE else View.GONE
+        b.tvErrorCode.visibility = b.btnError.visibility
+        st.errorCode?.let { b.tvErrorCode.text = "${it.id} ${it.title}" }
 
-        if (state.progress > 0.02f) {
-            val estimatedTotal = (elapsed / state.progress).toLong()
-            val remaining = (estimatedTotal - elapsed).coerceAtLeast(0)
-            binding.tvRemaining.text = "বাকি: ~${formatTime(remaining)}"
-        } else {
-            binding.tvRemaining.text = "বাকি: হিসাব হচ্ছে..."
+        if (navigated) return
+        val act = activity as? MainActivity ?: return
+
+        when (st.phase) {
+            JobPhase.DONE -> { navigated = true; act.openCompleted(st) }
+            JobPhase.FAILED, JobPhase.CANCELLED -> {
+                navigated = true
+                if (st.phase == JobPhase.CANCELLED) act.openHome()
+            }
+            else -> Unit
         }
+    }
 
-        lastProgress = state.progress
+    private fun showError() {
+        val st = MergeStateHolder.state.value
+        val report = st.errorReport ?: return
+        ErrorSheet.show(requireContext(), report, st.errorCode, st.errorMessage ?: "")
+    }
 
-        if (state.isComplete && state.outputFilePath != null && !completedNavigated) {
-            completedNavigated = true
-            val activity = activity as? MainActivity ?: return
-            handler.removeCallbacks(pollRunnable)
-            activity.showCompleted(
-                state.outputFilePath ?: "",
-                state.outputDurationMs,
-                state.outputFileSize
+    override fun onDestroyView() { super.onDestroyView(); _b = null }
+}
+
+object MergeServiceAction {
+    fun pause(ctx: android.content.Context) = send(ctx, MergeService.ACTION_PAUSE)
+    fun resume(ctx: android.content.Context) = send(ctx, MergeService.ACTION_RESUME)
+    fun cancel(ctx: android.content.Context) = send(ctx, MergeService.ACTION_CANCEL)
+
+    private fun send(ctx: android.content.Context, action: String) {
+        runCatching {
+            ctx.startService(
+                android.content.Intent(ctx, MergeService::class.java).setAction(action)
             )
         }
-
-        if (state.error != null && !completedNavigated && !MergeService.isServiceRunning) {
-            binding.tvStatus.text = "ব্যর্থ: ${state.error}"
-            binding.tvStatus.setTextColor(0xFFFF5252.toInt())
-        }
-    }
-
-    private fun formatTime(ms: Long): String {
-        val totalSec = ms / 1000
-        val h = totalSec / 3600
-        val m = (totalSec % 3600) / 60
-        val s = totalSec % 60
-        return if (h > 0) String.format("%d:%02d:%02d", h, m, s)
-        else String.format("%02d:%02d", m, s)
-    }
-
-    override fun onResume() {
-        super.onResume()
-        handler.post(pollRunnable)
-    }
-
-    override fun onPause() {
-        super.onPause()
-        handler.removeCallbacks(pollRunnable)
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        handler.removeCallbacks(pollRunnable)
-        _binding = null
     }
 }

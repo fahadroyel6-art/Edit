@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@color/bg_dark"
+    android:fitsSystemWindows="true" android:padding="14dp">
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Live Logs" android:textColor="@color/text_primary"
+            android:textSize="19sp" android:textStyle="bold" />
+        <TextView android:id="@+id/tvCount" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="0 entries"
+            android:textColor="@color/text_tertiary" android:textSize="10sp" android:layout_marginEnd="8dp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnBack"
+            style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="✕" android:textColor="@color/text_secondary" />
+    </LinearLayout>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="6dp" style="@style/Widget.Material3.TextInputLayout.OutlinedBox.Dense"
+        app:boxCornerRadiusTopStart="12dp" app:boxCornerRadiusTopEnd="12dp"
+        app:boxCornerRadiusBottomStart="12dp" app:boxCornerRadiusBottomEnd="12dp">
+        <com.google.android.material.textfield.TextInputEditText android:id="@+id/etSearch"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:hint="Search logs…" android:inputType="text" android:textSize="12sp" />
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="6dp">
+        <com.google.android.material.button.MaterialButton android:id="@+id/chipAll"
+            style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp"
+            android:layout_height="36dp" android:layout_weight="1" android:text="ALL"
+            android:textSize="9sp" android:insetTop="0dp" android:insetBottom="0dp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/chipInfo"
+            style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp"
+            android:layout_height="36dp" android:layout_weight="1" android:text="INFO"
+            android:textSize="9sp" android:insetTop="0dp" android:insetBottom="0dp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/chipWarn"
+            style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp"
+            android:layout_height="36dp" android:layout_weight="1" android:text="WARN"
+            android:textSize="9sp" android:insetTop="0dp" android:insetBottom="0dp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/chipError"
+            style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp"
+            android:layout_height="36dp" android:layout_weight="1" android:text="ERROR"
+            android:textSize="9sp" android:insetTop="0dp" android:insetBottom="0dp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/chipCritical"
+            style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp"
+            android:layout_height="36dp" android:layout_weight="1" android:text="CRIT"
+            android:textSize="9sp" android:insetTop="0dp" android:insetBottom="0dp" />
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView android:id="@+id/rvLogs"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="6dp"
+        app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:layout_marginTop="6dp">
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnCopyAll"
+            android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1"
+            android:layout_marginEnd="3dp" android:text="Copy All" android:textSize="10sp"
+            app:cornerRadius="10dp" android:backgroundTint="@color/accent"
+            android:textColor="@color/bg_dark" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnExportTxt"
+            android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1"
+            android:layout_marginStart="3dp" android:text="TXT" android:textSize="10sp"
+            app:cornerRadius="10dp" android:backgroundTint="@color/surface"
+            android:textColor="@color/text_secondary" app:strokeColor="@color/stroke" app:strokeWidth="1dp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnExportJson"
+            android:layout_width="0dp" android:layout_height="42dp" android:layout_weight="1"
+            android:layout_marginStart="6dp" android:text="JSON" android:textSize="10sp"
+            app:cornerRadius="10dp" android:backgroundTint="@color/surface"
+            android:textColor="@color/text_secondary" app:strokeColor="@color/stroke" app:strokeWidth="1dp" />
+    </LinearLayout>
+</LinearLayout>

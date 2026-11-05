@@ -1,269 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/bg_dark"
-    android:fitsSystemWindows="true"
-    android:fillViewport="true">
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/bg_dark" android:fitsSystemWindows="true" android:fillViewport="true">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="20dp">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="20dp">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Merge করুন"
-            android:textColor="@color/text_primary"
-            android:textSize="24sp"
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Merge করুন" android:textColor="@color/text_primary" android:textSize="22sp"
             android:textStyle="bold" />
 
-        <!-- Summary card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:strokeColor="@color/stroke"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:id="@+id/tvTotalVideos"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="3 টি ভিডিও"
-                    android:textColor="@color/accent"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvTotalDuration"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="মোট দৈর্ঘ্য: 3:10:00"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    android:layout_marginTop="4dp" />
-
-                <TextView
-                    android:id="@+id/tvTotalSize"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="মোট সাইজ: 4.5 GB"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="12sp"
-                    android:layout_marginTop="2dp" />
+        <com.google.android.material.card.MaterialCardView android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="14dp"
+            app:cardBackgroundColor="@color/surface" app:cardCornerRadius="16dp"
+            app:cardElevation="0dp" app:strokeColor="@color/stroke" app:strokeWidth="1dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp">
+                <TextView android:id="@+id/tvCount" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:text="2 টি ভিডিও"
+                    android:textColor="@color/accent" android:textSize="14sp" android:textStyle="bold" />
+                <TextView android:id="@+id/tvDuration" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:text="মোট দৈর্ঘ্য: —"
+                    android:textColor="@color/text_secondary" android:textSize="12sp" android:layout_marginTop="4dp" />
+                <TextView android:id="@+id/tvSize" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:text="মোট সাইজ: —"
+                    android:textColor="@color/text_secondary" android:textSize="12sp" android:layout_marginTop="2dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Mode selection -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Merge Mode"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:layout_marginTop="20dp" />
-
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/chipGroupMode"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:singleSelection="true"
-            app:selectionRequired="true">
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipLossless"
-                style="@style/Widget.Material3.Chip.Filter"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Lossless (No Re-encode)"
-                android:checked="true" />
-
-            <com.google.android.material.chip.Chip
-                android:id="@+id/chipReencode"
-                style="@style/Widget.Material3.Chip.Filter"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Re-encode (Compatible)" />
-        </com.google.android.material.chip.ChipGroup>
-
-        <TextView
-            android:id="@+id/tvLosslessNote"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text=""
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"
-            android:layout_marginTop="8dp"
-            android:visibility="gone" />
-
-        <!-- Re-encode options -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/cardReencodeOptions"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:visibility="gone"
-            app:cardBackgroundColor="@color/surface"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:strokeColor="@color/stroke"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Output Resolution"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
-
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/chipGroupResolution"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    app:singleSelection="true"
-                    app:selectionRequired="true">
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chipRes720"
-                        style="@style/Widget.Material3.Chip.Filter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="720p" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chipRes1080"
-                        style="@style/Widget.Material3.Chip.Filter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="1080p"
-                        android:checked="true" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chipRes4K"
-                        style="@style/Widget.Material3.Chip.Filter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="4K" />
-                </com.google.android.material.chip.ChipGroup>
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Output FPS"
-                    android:textColor="@color/text_primary"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    android:layout_marginTop="14dp" />
-
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/chipGroupFps"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    app:singleSelection="true"
-                    app:selectionRequired="true">
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chipFps30"
-                        style="@style/Widget.Material3.Chip.Filter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="30 fps"
-                        android:checked="true" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chipFps60"
-                        style="@style/Widget.Material3.Chip.Filter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="60 fps" />
-                </com.google.android.material.chip.ChipGroup>
+        <com.google.android.material.card.MaterialCardView android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="12dp"
+            app:cardBackgroundColor="@color/surface" app:cardCornerRadius="16dp"
+            app:cardElevation="0dp" app:strokeColor="@color/stroke" app:strokeWidth="1dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp">
+                <TextView android:id="@+id/tvMode" android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" android:text="MODE A"
+                    android:textColor="@color/accent" android:textSize="13sp" android:textStyle="bold" />
+                <TextView android:id="@+id/tvModeDetail" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:text="—"
+                    android:textColor="@color/text_secondary" android:textSize="12sp"
+                    android:layout_marginTop="6dp" android:lineSpacingExtra="3dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Output name -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Output File Name"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:layout_marginTop="20dp" />
+        <com.google.android.material.card.MaterialCardView android:id="@+id/cardReencode"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="10dp" android:visibility="gone"
+            app:cardBackgroundColor="@color/surface" app:cardCornerRadius="16dp"
+            app:cardElevation="0dp" app:strokeColor="@color/accent_dark" app:strokeWidth="1dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:padding="16dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Re-encode target (স্বয়ংক্রিয়)"
+                    android:textColor="@color/text_primary" android:textSize="12sp" android:textStyle="bold" />
+                <TextView android:id="@+id/tvReencodeTarget" android:layout_width="match_parent"
+                    android:layout_height="wrap_content" android:text="—"
+                    android:textColor="@color/text_secondary" android:textSize="12sp"
+                    android:layout_marginTop="6dp" android:lineSpacingExtra="3dp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
 
+        <TextView android:id="@+id/tvStorage" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="ফ্রি স্টোরেজ: —"
+            android:textColor="@color/text_secondary" android:textSize="12sp"
+            android:layout_marginTop="14dp" />
+
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="Output file name (prefix)" android:textColor="@color/text_primary"
+            android:textSize="12sp" android:layout_marginTop="14dp" />
         <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:boxBackgroundColor="@color/surface"
-            app:boxCornerRadiusBottomEnd="14dp"
-            app:boxCornerRadiusBottomStart="14dp"
-            app:boxCornerRadiusTopEnd="14dp"
-            app:boxCornerRadiusTopStart="14dp"
-            app:boxStrokeColor="@color/accent"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/etOutputName"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Merged_video"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                android:inputType="text" />
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+            app:boxCornerRadiusTopStart="14dp" app:boxCornerRadiusTopEnd="14dp"
+            app:boxCornerRadiusBottomStart="14dp" app:boxCornerRadiusBottomEnd="14dp">
+            <com.google.android.material.textfield.TextInputEditText android:id="@+id/etOutputName"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:inputType="text" android:textColor="@color/text_primary" android:textSize="13sp" />
         </com.google.android.material.textfield.TextInputLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="সেভ হবে: Movies/UltraVideoMerger"
-            android:textColor="@color/text_tertiary"
-            android:textSize="11sp"
-            android:layout_marginTop="6dp" />
-
-        <!-- Buttons -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnStart"
-            android:layout_width="match_parent"
-            android:layout_height="54dp"
-            android:layout_marginTop="24dp"
-            android:text="Start Merging"
-            android:textSize="15sp"
-            android:textStyle="bold"
-            app:cornerRadius="14dp"
-            android:backgroundTint="@color/accent"
-            android:textColor="@color/bg_dark" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnBack"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="6dp"
-            android:text="Back"
-            android:textColor="@color/text_secondary" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnStart"
+            android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="20dp"
+            android:text="Start Merging" android:textSize="14sp" android:textStyle="bold"
+            app:cornerRadius="14dp" android:backgroundTint="@color/accent" android:textColor="@color/bg_dark" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/btnBack"
+            style="@style/Widget.Material3.Button.TextButton" android:layout_width="match_parent"
+            android:layout_height="44dp" android:text="Back" android:textColor="@color/text_secondary" />
     </LinearLayout>
 </ScrollView>

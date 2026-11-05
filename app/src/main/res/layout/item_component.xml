@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:orientation="horizontal" android:gravity="center_vertical"
+    android:paddingTop="7dp" android:paddingBottom="7dp">
+    <View android:id="@+id/dot" android:layout_width="8dp" android:layout_height="8dp"
+        android:background="#10B981" android:layout_marginEnd="10dp" />
+    <TextView android:id="@+id/tvName" android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_weight="1" android:text="Component" android:textColor="@color/text_primary"
+        android:textSize="12sp" />
+    <TextView android:id="@+id/tvDetail" android:layout_width="0dp" android:layout_height="wrap_content"
+        android:layout_weight="1.2" android:text="" android:textColor="@color/text_secondary"
+        android:textSize="10sp" android:maxLines="1" android:ellipsize="end" android:gravity="end"
+        android:paddingEnd="8dp" />
+    <TextView android:id="@+id/tvStatus" android:layout_width="58dp" android:layout_height="wrap_content"
+        android:text="IDLE" android:textColor="@color/text_secondary" android:textSize="10sp"
+        android:textStyle="bold" android:gravity="end" />
+</LinearLayout>

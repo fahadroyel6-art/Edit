@@ -1,354 +1,421 @@
 package com.ultravidmerger.app.service
 
-import android.app.Notification
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
-import androidx.core.app.NotificationCompat
-import com.ultravidmerger.app.MainActivity
-import com.ultravidmerger.app.R
-import com.ultravidmerger.app.UltraVideoMergerApp
-import com.ultravidmerger.app.merger.LosslessMergeEngine
-import com.ultravidmerger.app.merger.ReencodeMergeEngine
+import com.ultravidmerger.app.VideoInfo
+import com.ultravidmerger.app.diag.Component
+import com.ultravidmerger.app.diag.ComponentStatus
+import com.ultravidmerger.app.diag.DiagnosticLogger
+import com.ultravidmerger.app.diag.Diagnostics
+import com.ultravidmerger.app.diag.EngineMonitor
+import com.ultravidmerger.app.diag.ErrorCode
+import com.ultravidmerger.app.diag.ServiceBridge
+import com.ultravidmerger.app.diag.SystemMonitor
+import com.ultravidmerger.app.engine.CompatibilityChecker
+import com.ultravidmerger.app.engine.CompatibilityReport
+import com.ultravidmerger.app.engine.MergeEngine
 import com.ultravidmerger.app.storage.StorageManager
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
+/**
+ * Foreground render service (Module 5).
+ *
+ * Responsibilities: own the job lifecycle, hold a wake lock, keep the
+ * notification in sync, persist job state for crash recovery, and hand the
+ * finished file to MediaStore after validation.
+ */
 class MergeService : Service() {
 
     companion object {
         private const val TAG = "MergeService"
         const val NOTIFICATION_ID = 2001
-        const val COMPLETE_NOTIFICATION_ID = 2002
-
-        const val ACTION_CANCEL = "com.ultravidmerger.CANCEL"
         const val ACTION_PAUSE = "com.ultravidmerger.PAUSE"
         const val ACTION_RESUME = "com.ultravidmerger.RESUME"
+        const val ACTION_CANCEL = "com.ultravidmerger.CANCEL"
 
-        @Volatile
-        var currentState: LosslessMergeEngine.MergeState = LosslessMergeEngine.MergeState()
+        const val EXTRA_URIS = "video_uris"
+        const val EXTRA_OUTPUT = "output_path"
+        const val EXTRA_MODE = "mode"
+        const val EXTRA_W = "target_width"
+        const val EXTRA_H = "target_height"
+        const val EXTRA_FPS = "target_fps"
+        const val EXTRA_TOTAL_MS = "total_duration_ms"
+        const val EXTRA_TOTAL_BYTES = "total_bytes"
+        const val EXTRA_ISSUES = "issues"
 
-        @Volatile
-        var isServiceRunning = false
-            private set
-
-        @Volatile
-        var savedGalleryUri: String? = null
-            private set
+        fun start(
+            context: Context,
+            videos: List<VideoInfo>,
+            report: CompatibilityReport,
+            tempPath: String
+        ) {
+            val intent = Intent(context, MergeService::class.java).apply {
+                putParcelableArrayListExtra(EXTRA_URIS, ArrayList(videos.map { it.uri }))
+                putExtra(EXTRA_OUTPUT, tempPath)
+                putExtra(EXTRA_MODE, report.mode.name)
+                putExtra(EXTRA_W, report.recommendedWidth)
+                putExtra(EXTRA_H, report.recommendedHeight)
+                putExtra(EXTRA_FPS, report.recommendedFps)
+                putExtra(EXTRA_TOTAL_MS, report.totalDurationMs)
+                putExtra(EXTRA_TOTAL_BYTES, report.totalInputBytes)
+                putExtra(
+                    EXTRA_ISSUES,
+                    report.issues.joinToString("; ") { "${it.field}: ${it.detail}" }
+                )
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
     }
 
-    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private var job: Job? = null
+    private var ticker: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private var processingJob: Job? = null
-    private var stateJob: Job? = null
+    private var startedAtMs = 0L
+    private var pausedAgain = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
-        isServiceRunning = true
-        Log.i(TAG, "Service created")
+        ServiceBridge.isRunning = true
+        EngineMonitor.set(Component.RENDER_SERVICE, ComponentStatus.BUSY, "created")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.i(TAG, "onStartCommand: action=${intent?.action}")
-
         when (intent?.action) {
-            ACTION_CANCEL -> {
-                LosslessMergeEngine.cancel()
-                ReencodeMergeEngine.cancel()
-                processingJob?.cancel()
-                stopSelf()
-                return START_NOT_STICKY
-            }
             ACTION_PAUSE -> {
-                LosslessMergeEngine.setPaused(true)
-                NotificationHelper.updatePaused(this, currentState)
+                pausedAgain = true
+                MergeStateHolder.update {
+                    it.copy(phase = JobPhase.PAUSED, status = "Paused")
+                }
+                NotificationHelper.post(this, NOTIFICATION_ID, NotificationHelper.progress(this, MergeStateHolder.state.value))
                 return START_STICKY
             }
             ACTION_RESUME -> {
-                LosslessMergeEngine.setPaused(false)
+                pausedAgain = false
+                MergeStateHolder.update {
+                    it.copy(phase = JobPhase.RUNNING, status = "Resuming…")
+                }
+                NotificationHelper.post(this, NOTIFICATION_ID, NotificationHelper.progress(this, MergeStateHolder.state.value))
+                return START_STICKY
+            }
+            ACTION_CANCEL -> {
+                DiagnosticLogger.warn(TAG, "Cancel pressed on notification")
+                MergeEngine.cancel()
+                MergeStateHolder.update { it.copy(phase = JobPhase.CANCELLED, status = "বাতিল হয়েছে") }
                 return START_STICKY
             }
         }
 
-        try {
-            startForeground(NOTIFICATION_ID, NotificationHelper.build(this, "মার্জ শুরু হচ্ছে...", 0))
-        } catch (e: Exception) {
-            Log.e(TAG, "startForeground failed", e)
+        val uris = intent?.getParcelableArrayListExtra<Uri>(EXTRA_URIS)
+        val outputPath = intent?.getStringExtra(EXTRA_OUTPUT)
+        if (uris.isNullOrEmpty() || outputPath.isNullOrEmpty()) {
+            DiagnosticLogger.warn(TAG, "Service started without a job; stopping")
+            stopSelf()
+            return START_NOT_STICKY
         }
+
+        startForeground(
+            NOTIFICATION_ID,
+            NotificationHelper.progress(this, MergeStateHolder.state.value)
+        )
 
         acquireWakeLock()
+        StorageManager.cleanupStaleTemps(this)
 
-        val videoUris = intent?.getParcelableArrayListExtra<Uri>("video_uris")
-        if (videoUris.isNullOrEmpty()) {
-            Log.e(TAG, "No videos provided")
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        val jobId = MergeStateHolder.state.value.jobId ?: Diagnostics.newJobId()
+        EngineMonitor.startJob(jobId)
 
-        val outputPath = intent.getStringExtra("output_path") ?: run {
-            Log.e(TAG, "No output path")
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
-        val mergeMode = intent.getStringExtra("merge_mode") ?: "LOSSLESS"
-        val targetWidth = intent.getIntExtra("target_width", 1920)
-        val targetHeight = intent.getIntExtra("target_height", 1080)
-        val targetFps = intent.getIntExtra("target_fps", 30)
-
-        Log.i(TAG, "Merge start: ${videoUris.size} videos, mode=$mergeMode, out=$outputPath")
-
-        LosslessMergeEngine.resetState()
-
-        // Mirror engine state into the static holder the UI polls
-        stateJob?.cancel()
-        stateJob = serviceScope.launch {
-            LosslessMergeEngine.state.collectLatest { s ->
-                currentState = s
-                if (s.isProcessing) {
-                    NotificationHelper.update(this@MergeService, s)
-                }
+        if (MergeEngine.isRunning()) {
+            val ctx = Diagnostics.report(
+                ErrorCode.JOB_ALREADY_RUNNING, "service",
+                "A job is already running; second request ignored.", jobId = jobId
+            )
+            MergeStateHolder.update {
+                it.copy(
+                    phase = JobPhase.FAILED,
+                    errorCode = ErrorCode.JOB_ALREADY_RUNNING,
+                    errorMessage = "আগের কাজ এখনো চলছে",
+                    errorReport = com.ultravidmerger.app.diag.ErrorReportGenerator.build(ctx)
+                )
             }
+            stopSelf()
+            return START_NOT_STICKY
         }
 
-        processingJob?.cancel()
-        processingJob = serviceScope.launch {
-            performMerge(videoUris, outputPath, mergeMode, targetWidth, targetHeight, targetFps)
+        startedAtMs = System.currentTimeMillis()
+        pausedAgain = false
+        MergeJobState.begin(this, jobId, outputPath)
+
+        MergeStateHolder.update {
+            it.copy(
+                phase = JobPhase.PREPARING,
+                progress = 0f,
+                status = "প্রস্তুত হচ্ছে…",
+                jobId = jobId,
+                elapsedMs = 0,
+                outputPath = outputPath,
+                errorCode = null,
+                errorMessage = null,
+                errorReport = null
+            )
         }
 
+        runJob(uris, outputPath, intent, jobId)
         return START_STICKY
     }
 
-    private suspend fun performMerge(
-        videoUris: List<Uri>,
+    private fun runJob(
+        uris: List<Uri>,
         outputPath: String,
-        mergeMode: String,
-        targetWidth: Int,
-        targetHeight: Int,
-        targetFps: Int
+        intent: Intent,
+        jobId: String
     ) {
-        try {
-            val result = when (mergeMode) {
-                "LOSSLESS" -> LosslessMergeEngine.merge(this, videoUris, outputPath)
-                "REENCODE" -> ReencodeMergeEngine.merge(
-                    this, videoUris, outputPath, targetWidth, targetHeight, targetFps
-                )
-                else -> LosslessMergeEngine.Result.Error("Unknown merge mode: $mergeMode")
-            }
-
-            when (result) {
-                is LosslessMergeEngine.Result.Success -> {
-                    Log.i(TAG, "Merge success: ${result.outputPath}")
-
-                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-                        .format(Date())
-                    val displayName = "Merged_$timestamp.mp4"
-
-                    val uri = withContext(Dispatchers.IO) {
-                        StorageManager.saveVideoToGallery(
-                            this@MergeService,
-                            File(result.outputPath),
-                            displayName
+        job = scope.launch {
+            // elapsed/ETA ticker
+            ticker = launch {
+                while (isActive) {
+                    val elapsed = System.currentTimeMillis() - startedAtMs
+                    val p = MergeStateHolder.state.value.progress
+                    val remaining = if (p > 0.02f) ((elapsed / p) * (1 - p)).toLong() else 0L
+                    MergeStateHolder.update {
+                        it.copy(
+                            elapsedMs = elapsed,
+                            remainingMs = remaining,
+                            thermalWarning = Diagnostics.thermalWarning()
                         )
                     }
-
-                    if (uri != null) {
-                        savedGalleryUri = uri.toString()
-                        Log.i(TAG, "Saved to gallery: $uri")
-                        NotificationHelper.complete(this, displayName)
-                        // Keep the temp file so the completion screen can play / share it
-                    } else {
-                        Log.e(TAG, "Gallery save failed — keeping temp file")
-                        NotificationHelper.failed(this, "Gallery তে সেভ করা যায়নি")
-                    }
-                }
-
-                is LosslessMergeEngine.Result.Error -> {
-                    Log.e(TAG, "Merge error: ${result.message}")
-                    NotificationHelper.failed(this, result.message)
-                }
-
-                is LosslessMergeEngine.Result.Cancelled -> {
-                    Log.i(TAG, "Merge cancelled by user")
-                    try { File(outputPath).delete() } catch (_: Exception) {}
-                    NotificationHelper.cancelled(this)
+                    delay(500)
                 }
             }
-        } catch (e: CancellationException) {
-            Log.i(TAG, "Merge job cancelled")
-            try { File(outputPath).delete() } catch (_: Exception) {}
-        } catch (e: Exception) {
-            Log.e(TAG, "Merge failed", e)
-            NotificationHelper.failed(this, e.message ?: "Unknown error")
-        } finally {
-            releaseWakeLock()
-            isServiceRunning = false
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+
+            try {
+                // Build lightweight VideoInfo objects from the URIs for the engine
+                val infos = uris.mapIndexed { i, uri ->
+                    VideoInfo(
+                        uri = uri,
+                        fileName = "input_${i + 1}",
+                        durationMs = 0L,
+                        width = 0,
+                        height = 0,
+                        fps = 0.0,
+                        videoCodec = "",
+                        audioCodec = "",
+                        fileSize = 0L,
+                        videoBitrate = 0,
+                        audioBitrate = 0,
+                        sampleRate = 0,
+                        channels = 0
+                    )
+                }
+
+                // Prefer the report handed over by the UI; fall back to recomputing
+                val report = CompatibilityReport(
+                    mode = runCatching {
+                        com.ultravidmerger.app.engine.MergeMode.valueOf(
+                            intent.getStringExtra(EXTRA_MODE) ?: "LOSSLESS"
+                        )
+                    }.getOrDefault(com.ultravidmerger.app.engine.MergeMode.LOSSLESS),
+                    issues = emptyList(),
+                    recommendedWidth = intent.getIntExtra(EXTRA_W, 1920),
+                    recommendedHeight = intent.getIntExtra(EXTRA_H, 1080),
+                    recommendedFps = intent.getIntExtra(EXTRA_FPS, 30),
+                    commonVideoCodec = "",
+                    totalDurationMs = intent.getLongExtra(EXTRA_TOTAL_MS, 0L),
+                    totalInputBytes = intent.getLongExtra(EXTRA_TOTAL_BYTES, 0L)
+                )
+
+                MergeStateHolder.update {
+                    it.copy(
+                        phase = JobPhase.RUNNING,
+                        lossless = report.mode == com.ultravidmerger.app.engine.MergeMode.LOSSLESS,
+                        status = if (report.mode == com.ultravidmerger.app.engine.MergeMode.LOSSLESS)
+                            "Lossless merge চলছে…" else "Re-encode merge চলছে…"
+                    )
+                }
+
+                val outcome = MergeEngine.execute(
+                    this@MergeService,
+                    MergeEngine.Request(infos, outputPath, report)
+                ) { progress, status ->
+                    if (pausedAgain) return@execute
+                    MergeStateHolder.update {
+                        it.copy(
+                            phase = JobPhase.RUNNING,
+                            progress = progress.coerceIn(0f, 1f),
+                            status = status
+                        )
+                    }
+                    NotificationHelper.post(
+                        this@MergeService, NOTIFICATION_ID,
+                        NotificationHelper.progress(this@MergeService, MergeStateHolder.state.value)
+                    )
+                }
+
+                handleOutcome(outcome, outputPath, jobId)
+
+            } catch (e: CancellationException) {
+                DiagnosticLogger.warn(TAG, "Job cancelled by coroutine")
+                MergeStateHolder.update { it.copy(phase = JobPhase.CANCELLED, status = "বাতিল হয়েছে") }
+            } catch (e: Exception) {
+                val ctx = Diagnostics.report(
+                    ErrorCode.UNKNOWN, "service", "Service crash: ${e.message}", e, jobId
+                )
+                MergeStateHolder.update {
+                    it.copy(
+                        phase = JobPhase.FAILED,
+                        errorCode = ErrorCode.UNKNOWN,
+                        errorMessage = e.message,
+                        errorReport = com.ultravidmerger.app.diag.ErrorReportGenerator.build(ctx)
+                    )
+                }
+                NotificationHelper.post(
+                    this@MergeService, NOTIFICATION_ID + 1,
+                    NotificationHelper.failed(this@MergeService, "UVM-1999", e.message ?: "unknown")
+                )
+            } finally {
+                ticker?.cancel()
+                MergeJobState.finish(this@MergeService)
+                releaseWakeLock()
+                ServiceBridge.isRunning = false
+                EngineMonitor.set(Component.RENDER_SERVICE, ComponentStatus.IDLE, "stopped")
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+        }
+    }
+
+    private suspend fun handleOutcome(
+        outcome: MergeEngine.Outcome,
+        outputPath: String,
+        jobId: String
+    ) {
+        when (outcome) {
+            is MergeEngine.Outcome.Success -> {
+                MergeStateHolder.update {
+                    it.copy(
+                        phase = JobPhase.SAVING,
+                        progress = 0.99f,
+                        status = "Gallery তে সেভ হচ্ছে…",
+                        outputPath = outcome.outputPath,
+                        durationMs = outcome.durationMs,
+                        fileBytes = outcome.fileBytes,
+                        engineUsed = outcome.engineUsed,
+                        lossless = outcome.lossless
+                    )
+                }
+
+                val name = StorageManager.uniqueName()
+                val galleryUri = withContext(Dispatchers.IO) {
+                    StorageManager.saveToGallery(this@MergeService, File(outputPath), name)
+                }
+
+                if (galleryUri == null) {
+                    val ctx = Diagnostics.report(
+                        ErrorCode.INSUFFICIENT_STORAGE, "storage",
+                        "Merged file was produced but could not be written to the Gallery.",
+                        jobId = jobId
+                    )
+                    MergeStateHolder.update {
+                        it.copy(
+                            phase = JobPhase.FAILED,
+                            errorCode = ErrorCode.INSUFFICIENT_STORAGE,
+                            errorMessage = "Gallery তে সেভ করা যায়নি",
+                            errorReport = com.ultravidmerger.app.diag.ErrorReportGenerator.build(ctx)
+                        )
+                    }
+                    NotificationHelper.post(
+                        this, NOTIFICATION_ID + 1,
+                        NotificationHelper.failed(this, "UVM-1004", "Gallery তে সেভ করা যায়নি")
+                    )
+                } else {
+                    MergeStateHolder.update {
+                        it.copy(
+                            phase = JobPhase.DONE,
+                            progress = 1f,
+                            status = "সম্পন্ন",
+                            galleryUri = galleryUri.toString()
+                        )
+                    }
+                    EngineMonitor.finishJob(true, "${outcome.engineUsed} → ${VideoInfo.formatBytes(outcome.fileBytes)}")
+                    NotificationHelper.post(
+                        this, NOTIFICATION_ID + 1,
+                        NotificationHelper.completed(this, name, VideoInfo.formatBytes(outcome.fileBytes))
+                    )
+                    // temp copy no longer needed; the Gallery copy is authoritative
+                    runCatching { File(outputPath).delete() }
+                }
+            }
+
+            is MergeEngine.Outcome.Failure -> {
+                MergeStateHolder.update {
+                    it.copy(
+                        phase = JobPhase.FAILED,
+                        progress = 0f,
+                        status = "ব্যর্থ",
+                        errorCode = outcome.code,
+                        errorMessage = outcome.message,
+                        errorReport = outcome.report
+                    )
+                }
+                EngineMonitor.finishJob(false, "${outcome.code.id} ${outcome.message}")
+                NotificationHelper.post(
+                    this, NOTIFICATION_ID + 1,
+                    NotificationHelper.failed(this, outcome.code.id, outcome.message)
+                )
+            }
+
+            MergeEngine.Outcome.Cancelled -> {
+                MergeStateHolder.update { it.copy(phase = JobPhase.CANCELLED, status = "বাতিল হয়েছে") }
+                runCatching { File(outputPath).delete() }
+                EngineMonitor.finishJob(false, "cancelled")
+            }
         }
     }
 
     private fun acquireWakeLock() {
-        try {
+        runCatching {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "UltraVideoMerger::Merge"
-            ).apply {
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UVM::merge").apply {
                 setReferenceCounted(false)
-                acquire(6 * 60 * 60 * 1000L)
+                acquire(12L * 60 * 60 * 1000) // 12h ceiling; not a processing limit
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "WakeLock failed", e)
-        }
+            DiagnosticLogger.info(TAG, "Wake lock acquired")
+        }.onFailure { DiagnosticLogger.warn(TAG, "Wake lock failed: ${it.message}") }
     }
 
     private fun releaseWakeLock() {
-        try {
-            wakeLock?.let { if (it.isHeld) it.release() }
-        } catch (_: Exception) {}
+        runCatching { wakeLock?.let { if (it.isHeld) it.release() } }
         wakeLock = null
     }
 
     override fun onDestroy() {
-        Log.i(TAG, "Service destroyed")
-        stateJob?.cancel()
-        serviceScope.cancel()
+        DiagnosticLogger.info(TAG, "Service destroyed")
+        runCatching { MergeEngine.cancel() }
+        ticker?.cancel()
+        scope.cancel()
         releaseWakeLock()
-        isServiceRunning = false
+        ServiceBridge.isRunning = false
+        EngineMonitor.set(Component.RENDER_SERVICE, ComponentStatus.OFFLINE, "destroyed")
         super.onDestroy()
-    }
-}
-
-/** All notification building lives here so the service file stays readable. */
-internal object NotificationHelper {
-
-    private fun contentIntent(ctx: Context): PendingIntent =
-        PendingIntent.getActivity(
-            ctx, 0,
-            Intent(ctx, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-    private fun actionIntent(ctx: Context, action: String): PendingIntent =
-        PendingIntent.getService(
-            ctx, action.hashCode(),
-            Intent(ctx, MergeService::class.java).setAction(action),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-    fun build(ctx: Context, text: String, progress: Int): Notification {
-        val builder = NotificationCompat.Builder(ctx, UltraVideoMergerApp.CHANNEL_MERGE)
-            .setContentTitle("Ultra Video Merger")
-            .setContentText(text)
-            .setSmallIcon(R.drawable.ic_merge)
-            .setContentIntent(contentIntent(ctx))
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-
-        if (progress in 0..100) {
-            builder.setProgress(100, progress, progress == 0)
-        } else {
-            builder.setProgress(0, 0, true)
-        }
-        return builder.build()
-    }
-
-    fun update(ctx: Context, state: LosslessMergeEngine.MergeState) {
-        val pct = (state.progress * 100).toInt().coerceIn(0, 100)
-        val notification = NotificationCompat.Builder(ctx, UltraVideoMergerApp.CHANNEL_MERGE)
-            .setContentTitle("Ultra Video Merger")
-            .setContentText("${state.status} — $pct%")
-            .setSmallIcon(R.drawable.ic_merge)
-            .setContentIntent(contentIntent(ctx))
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setProgress(100, pct, false)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(0, "Pause", actionIntent(ctx, MergeService.ACTION_PAUSE))
-            .addAction(0, "Cancel", actionIntent(ctx, MergeService.ACTION_CANCEL))
-            .build()
-
-        notify(ctx, MergeService.NOTIFICATION_ID, notification)
-    }
-
-    fun updatePaused(ctx: Context, state: LosslessMergeEngine.MergeState) {
-        val pct = (state.progress * 100).toInt().coerceIn(0, 100)
-        val notification = NotificationCompat.Builder(ctx, UltraVideoMergerApp.CHANNEL_MERGE)
-            .setContentTitle("Ultra Video Merger")
-            .setContentText("Paused — $pct%")
-            .setSmallIcon(R.drawable.ic_merge)
-            .setContentIntent(contentIntent(ctx))
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setProgress(100, pct, false)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .addAction(0, "Resume", actionIntent(ctx, MergeService.ACTION_RESUME))
-            .addAction(0, "Cancel", actionIntent(ctx, MergeService.ACTION_CANCEL))
-            .build()
-
-        notify(ctx, MergeService.NOTIFICATION_ID, notification)
-    }
-
-    fun complete(ctx: Context, fileName: String) {
-        val notification = NotificationCompat.Builder(ctx, UltraVideoMergerApp.CHANNEL_COMPLETE)
-            .setContentTitle("✅ মার্জ সম্পন্ন")
-            .setContentText("$fileName Gallery তে সেভ হয়েছে")
-            .setSmallIcon(R.drawable.ic_merge)
-            .setAutoCancel(true)
-            .setContentIntent(contentIntent(ctx))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-
-        notify(ctx, MergeService.COMPLETE_NOTIFICATION_ID, notification)
-    }
-
-    fun failed(ctx: Context, message: String) {
-        val notification = NotificationCompat.Builder(ctx, UltraVideoMergerApp.CHANNEL_COMPLETE)
-            .setContentTitle("❌ মার্জ ব্যর্থ")
-            .setContentText(message)
-            .setSmallIcon(R.drawable.ic_merge)
-            .setAutoCancel(true)
-            .setContentIntent(contentIntent(ctx))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .build()
-
-        notify(ctx, MergeService.COMPLETE_NOTIFICATION_ID, notification)
-    }
-
-    fun cancelled(ctx: Context) {
-        val notification = NotificationCompat.Builder(ctx, UltraVideoMergerApp.CHANNEL_COMPLETE)
-            .setContentTitle("মার্জ বাতিল হয়েছে")
-            .setContentText("কোনো ফাইল তৈরি হয়নি")
-            .setSmallIcon(R.drawable.ic_merge)
-            .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-
-        notify(ctx, MergeService.COMPLETE_NOTIFICATION_ID, notification)
-    }
-
-    private fun notify(ctx: Context, id: Int, n: Notification) {
-        try {
-            val manager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.notify(id, n)
-        } catch (e: Exception) {
-            Log.w("NotificationHelper", "notify failed", e)
-        }
     }
 }

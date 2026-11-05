@@ -11,11 +11,13 @@
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="colorSurfaceVariant">@color/surface_variant</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorOutline">@color/stroke</item>
         <item name="android:colorBackground">@color/bg_dark</item>
         <item name="colorOnBackground">@color/text_primary</item>
         <item name="colorError">@color/danger</item>
         <item name="android:statusBarColor">@color/bg_dark</item>
         <item name="android:navigationBarColor">@color/bg_dark</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorHint">@color/text_tertiary</item>
     </style>
 </resources>
