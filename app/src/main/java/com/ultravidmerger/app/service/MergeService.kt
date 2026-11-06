@@ -73,7 +73,7 @@ class MergeService : Service() {
                 putExtra(EXTRA_FPS, report.recommendedFps)
                 putExtra(EXTRA_TOTAL_MS, report.totalDurationMs)
                 putExtra(EXTRA_TOTAL_BYTES, report.totalInputBytes)
-                putLongArrayExtra(EXTRA_DURATIONS, videos.map { it.durationMs }.toLongArray())
+                putExtra(EXTRA_DURATIONS, videos.map { it.durationMs }.toLongArray())
                 putExtra(
                     EXTRA_ISSUES,
                     report.issues.joinToString("; ") { "${it.field}: ${it.detail}" }
@@ -220,7 +220,7 @@ class MergeService : Service() {
                     VideoInfo(
                         uri = uri,
                         fileName = "input_${i + 1}",
-                        durationMs = realDurations?.getOrNull(i) ?: 0L,
+                        durationMs = if (realDurations != null && i < realDurations.size) realDurations[i] else 0L,
                         width = 0,
                         height = 0,
                         fps = 0.0,

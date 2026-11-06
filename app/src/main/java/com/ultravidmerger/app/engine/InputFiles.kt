@@ -116,7 +116,7 @@ object InputFiles {
      * file and fails with ESPIPE on a pipe/socket.
      */
     private fun probeSeekable(pfd: ParcelFileDescriptor): Boolean = try {
-        Os.lseek(pfd.fd, 0L, OsConstants.SEEK_CUR)
+        Os.lseek(pfd.fileDescriptor, 0L, OsConstants.SEEK_CUR)
         true
     } catch (e: ErrnoException) {
         false
