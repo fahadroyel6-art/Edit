@@ -114,12 +114,22 @@ object MergeTestSuite {
         suspend fun mergeLossless(files: List<File>, out: File): Pair<Boolean, FFmpegEngine.Result?> {
             runCatching { out.delete() }
             val total = files.sumOf { analyze(it)?.durationMs ?: 0L }
-            val r = FFmpegEngine.mergeLossless(
-                context,
-                files.map { Uri.fromFile(it) },
-                out.absolutePath,
-                total
-            ) { }
+            val handles = try {
+                com.ultravidmerger.app.engine.InputFiles.openAll(context, files.map { Uri.fromFile(it) })
+            } catch (e: Exception) {
+                return false to null
+            }
+            val r = try {
+                FFmpegEngine.mergeLossless(
+                    context,
+                    handles.map { it.path },
+                    out.absolutePath,
+                    total,
+                    files.sumOf { it.length() }
+                ) { _, _ -> }
+            } finally {
+                com.ultravidmerger.app.engine.InputFiles.closeAll()
+            }
             return (r.success && out.exists() && out.length() > 1024) to r
         }
 
@@ -301,12 +311,19 @@ object MergeTestSuite {
             runCatching { out.delete() }
 
             val job = kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                FFmpegEngine.mergeLossless(
-                    context,
-                    listOf(Uri.fromFile(long30), Uri.fromFile(a4s)),
-                    out.absolutePath,
-                    34000L
-                ) { }
+                val handles = com.ultravidmerger.app.engine.InputFiles
+                    .openAll(context, listOf(Uri.fromFile(long30), Uri.fromFile(a4s)))
+                try {
+                    FFmpegEngine.mergeLossless(
+                        context,
+                        handles.map { it.path },
+                        out.absolutePath,
+                        34000L,
+                        long30.length() + a4s.length()
+                    ) { _, _ -> }
+                } finally {
+                    com.ultravidmerger.app.engine.InputFiles.closeAll()
+                }
             }
             delay(700)
             FFmpegEngine.cancel()
@@ -345,12 +362,19 @@ object MergeTestSuite {
             val seen = mutableListOf<Float>()
             val out = File(workDir, "t14.mp4")
             runCatching { out.delete() }
-            FFmpegEngine.mergeLossless(
-                context,
-                listOf(Uri.fromFile(long30), Uri.fromFile(a4s)),
-                out.absolutePath,
-                34000L
-            ) { p -> synchronized(seen) { seen.add(p) } }
+            val h = com.ultravidmerger.app.engine.InputFiles
+                .openAll(context, listOf(Uri.fromFile(long30), Uri.fromFile(a4s)))
+            try {
+                FFmpegEngine.mergeLossless(
+                    context,
+                    h.map { it.path },
+                    out.absolutePath,
+                    34000L,
+                    long30.length() + a4s.length()
+                ) { p, _ -> synchronized(seen) { seen.add(p) } }
+            } finally {
+                com.ultravidmerger.app.engine.InputFiles.closeAll()
+            }
 
             val monotonic = seen.zipWithNext().all { (a, b) -> b >= a - 0.001f }
             val good = seen.isNotEmpty() && monotonic

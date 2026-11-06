@@ -35,6 +35,13 @@
         android:layout_width="match_parent" android:layout_height="48dp" android:text="▶  Run All Tests"
         android:textSize="13sp" android:textStyle="bold" app:cornerRadius="12dp"
         android:backgroundTint="@color/accent" android:textColor="@color/bg_dark" />
+    <com.google.android.material.button.MaterialButton android:id="@+id/btnRunLong"
+        android:layout_width="match_parent" android:layout_height="46dp" android:layout_marginTop="6dp"
+        android:text="⏱  Run Long-Video Tests (10m → 3h)"
+        android:textSize="12sp" android:textStyle="bold" app:cornerRadius="12dp"
+        android:backgroundTint="@color/surface" android:textColor="@color/accent"
+        app:strokeColor="@color/accent" app:strokeWidth="1.2dp" />
+
     <com.google.android.material.button.MaterialButton android:id="@+id/btnCopyReport"
         android:layout_width="match_parent" android:layout_height="42dp" android:layout_marginTop="6dp"
         android:text="Copy Test Report" android:textSize="11sp" app:cornerRadius="12dp"

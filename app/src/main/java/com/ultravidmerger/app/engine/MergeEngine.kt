@@ -85,28 +85,38 @@ object MergeEngine {
         cancelRequested = false
         SystemMonitor.refreshOnce()
 
+        // RC-1 defence-in-depth: nothing below WARNING is recorded while a
+        // merge is running, so no component can flood the callback executor.
+        DiagnosticLogger.minLevel = com.ultravidmerger.app.diag.DiagLevel.WARNING
+
         val jobId = EngineMonitor.currentJobId.value ?: Diagnostics.newJobId()
 
         try {
             // ---------- storage pre-flight ----------
+            // A merge needs the temp output AND then a second copy into the
+            // Gallery, which coexist momentarily. Peak requirement is therefore
+            // ~2x the expected output size. Under-estimating this is what makes
+            // long merges die at 90% with "no space left".
             val needed = request.report.totalInputBytes
+            val peakNeeded = (needed * 2.1).toLong()
             val snap = SystemMonitor.snapshot.value
             val free = snap.storageFreeBytes
 
-            // copy mode ≈ input size; re-encode can be smaller, but be conservative
-            if (free in 1..(needed + needed / 4)) {
+            if (free in 1..peakNeeded) {
                 val ctx = Diagnostics.report(
                     ErrorCode.INSUFFICIENT_STORAGE, "storage",
-                    "Need ≈${VideoInfo.formatBytes(needed)} free, only " +
-                        "${VideoInfo.formatBytes(free)} available.",
+                    "Need ≈${VideoInfo.formatBytes(peakNeeded)} free (2x output for temp+gallery), " +
+                        "only ${VideoInfo.formatBytes(free)} available.",
                     extra = mapOf(
-                        "requiredBytes" to needed.toString(),
-                        "freeBytes" to free.toString()
+                        "requiredBytes" to peakNeeded.toString(),
+                        "freeBytes" to free.toString(),
+                        "inputBytes" to needed.toString()
                     )
                 )
                 return@withContext Outcome.Failure(
                     ErrorCode.INSUFFICIENT_STORAGE,
-                    "যথেষ্ট জায়গা নেই। দরকার ≈${VideoInfo.formatBytes(needed)}, আছে ${VideoInfo.formatBytes(free)}",
+                    "যথেষ্ট জায়গা নেই। দরকার ≈${VideoInfo.formatBytes(peakNeeded)} " +
+                        "(temp + Gallery copy), আছে ${VideoInfo.formatBytes(free)}",
                     com.ultravidmerger.app.diag.ErrorReportGenerator.build(ctx)
                 )
             }
@@ -121,6 +131,13 @@ object MergeEngine {
             outFile.parentFile?.mkdirs()
             runCatching { outFile.delete() }
 
+            if (request.report.totalDurationMs <= 0L) {
+                DiagnosticLogger.warn(
+                    TAG,
+                    "Total duration unknown; progress will be reported in bytes written"
+                )
+            }
+
             var engineUsed = ""
             var lossless = false
 
@@ -129,14 +146,61 @@ object MergeEngine {
                 EngineMonitor.setStage("Lossless stream copy (FFmpeg concat)")
                 onProgress(0.01f, "Lossless merge শুরু হচ্ছে…")
 
-                val ff = FFmpegEngine.mergeLossless(
-                    context,
-                    request.videos.map { it.uri },
-                    request.outputPath,
-                    request.report.totalDurationMs
-                ) { p -> onProgress(p, "Lossless copy… ${(p * 100).toInt()}%") }
+                // RC-3: real seekable descriptors instead of the saf: protocol.
+                // Kept open for the whole job, closed in the finally block below.
+                val handles = try {
+                    InputFiles.openAll(context, request.videos.map { it.uri })
+                } catch (e: IllegalStateException) {
+                    val ctx = Diagnostics.report(
+                        ErrorCode.PERMISSION_DENIED, "input",
+                        e.message ?: "Cannot open inputs", jobId = jobId
+                    )
+                    return@withContext Outcome.Failure(
+                        ErrorCode.PERMISSION_DENIED,
+                        e.message ?: "ইনপুট খোলা যায়নি",
+                        com.ultravidmerger.app.diag.ErrorReportGenerator.build(ctx)
+                    )
+                }
+
+                val ff = try {
+                    FFmpegEngine.mergeLossless(
+                        context,
+                        handles.map { it.path },
+                        request.outputPath,
+                        request.report.totalDurationMs,
+                        request.report.totalInputBytes
+                    ) { p, status -> onProgress(p, status) }
+                } finally {
+                    InputFiles.closeAll()
+                }
 
                 if (cancelRequested || ff.cancelled) return@withContext Outcome.Cancelled
+
+                if (ff.stalled) {
+                    val ctx = Diagnostics.report(
+                        ErrorCode.LONG_VIDEO_TIMEOUT, "ffmpeg",
+                        "Merge stalled: no output progress for ${ff.stallSeconds}s at " +
+                            "out_time=${ff.lastOutTimeUs / 1_000_000}s " +
+                            "(target ${request.report.totalDurationMs / 1000}s).",
+                        jobId = jobId,
+                        ffmpegCommand = ff.command,
+                        ffmpegExitCode = ff.exitCode,
+                        ffmpegLog = ff.outputLog,
+                        extra = mapOf(
+                            "inputCount" to request.videos.size.toString(),
+                            "totalDurationMs" to request.report.totalDurationMs.toString(),
+                            "elapsedMs" to ff.elapsedMs.toString(),
+                            "stallSeconds" to ff.stallSeconds.toString(),
+                            "bytesWritten" to ff.outputBytes.toString()
+                        )
+                    )
+                    runCatching { outFile.delete() }
+                    return@withContext Outcome.Failure(
+                        ErrorCode.LONG_VIDEO_TIMEOUT,
+                        "মার্জ ${ff.stallSeconds}s ধরে আটকে ছিল",
+                        com.ultravidmerger.app.diag.ErrorReportGenerator.build(ctx)
+                    )
+                }
 
                 if (ff.success) {
                     engineUsed = "FFmpeg concat -c copy"
@@ -276,6 +340,7 @@ object MergeEngine {
             runCatching { File(request.outputPath).delete() }
             Outcome.Failure(code, e.message ?: "Unknown", com.ultravidmerger.app.diag.ErrorReportGenerator.build(ctx))
         } finally {
+            DiagnosticLogger.minLevel = com.ultravidmerger.app.diag.DiagLevel.INFO
             running.set(false)
         }
     }

@@ -10,6 +10,7 @@ import com.ultravidmerger.app.MainActivity
 import com.ultravidmerger.app.databinding.FragmentSelftestBinding
 import com.ultravidmerger.app.databinding.ItemTestBinding
 import com.ultravidmerger.app.diag.DiagnosticLogger
+import com.ultravidmerger.app.selftest.LongVideoTestSuite
 import com.ultravidmerger.app.selftest.MergeTestSuite
 import com.ultravidmerger.app.selftest.TestOutcome
 import com.ultravidmerger.app.selftest.TestReport
@@ -37,6 +38,7 @@ class SelfTestFragment : Fragment() {
         b.rvTests.adapter = adapter
         b.btnBack.setOnClickListener { (activity as? MainActivity)?.openHome() }
         b.btnRun.setOnClickListener { if (!running) runSuite() }
+        b.btnRunLong.setOnClickListener { if (!running) runLongSuite() }
         b.btnCopyReport.setOnClickListener {
             val r = lastReport ?: return@setOnClickListener
             ErrorSheet.copy(requireContext(), r.toText(), "Test report copied")
@@ -49,9 +51,42 @@ class SelfTestFragment : Fragment() {
 
     private var lastReport: TestReport? = null
 
+    private fun runLongSuite() {
+        running = true
+        b.btnRun.isEnabled = false
+        b.btnRunLong.isEnabled = false
+        b.btnCopyReport.isEnabled = false
+        b.progress.visibility = View.VISIBLE
+        b.tvSummary.text = "Long-video suite চলছে (10m → 3h)…"
+        b.tvSummary.setTextColor(0xFF38BDF8.toInt())
+
+        lifecycleScope.launch {
+            try {
+                val report = LongVideoTestSuite.runAll(requireContext()) { outcome ->
+                    lifecycleScope.launch { adapter.upsertLong(outcome) }
+                }
+                lastReport = report
+                b.tvSummary.text = report.summaryLine()
+                b.tvSummary.setTextColor(
+                    if (report.failed == 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
+                )
+                b.btnCopyReport.isEnabled = true
+            } catch (e: Exception) {
+                b.tvSummary.text = "Long suite crashed: ${e.message}"
+                b.tvSummary.setTextColor(0xFFEF4444.toInt())
+            } finally {
+                running = false
+                b.btnRun.isEnabled = true
+                b.btnRunLong.isEnabled = true
+                b.progress.visibility = View.GONE
+            }
+        }
+    }
+
     private fun runSuite() {
         running = true
         b.btnRun.isEnabled = false
+        b.btnRunLong.isEnabled = false
         b.btnCopyReport.isEnabled = false
         b.progress.visibility = View.VISIBLE
 
@@ -77,6 +112,7 @@ class SelfTestFragment : Fragment() {
             } finally {
                 running = false
                 b.btnRun.isEnabled = true
+                b.btnRunLong.isEnabled = true
                 b.progress.visibility = View.GONE
             }
         }
@@ -100,6 +136,24 @@ class TestAdapter : androidx.recyclerview.widget.RecyclerView.Adapter<TestAdapte
         if (idx < 0) return
         items[idx] = o
         notifyItemChanged(idx)
+    }
+
+    /** Long-video suite runs into the same list; append if not present. */
+    fun upsertLong(o: TestOutcome) {
+        val idx = items.indexOfFirst { it.test.id == o.test.id }
+        if (idx >= 0) {
+            items[idx] = o
+            notifyItemChanged(idx)
+        } else {
+            items.add(o)
+            notifyItemInserted(items.size - 1)
+        }
+    }
+
+    fun clearAll() {
+        items.clear()
+        MergeTestSuite.ALL.forEach { items += TestOutcome(it) }
+        notifyDataSetChanged()
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =

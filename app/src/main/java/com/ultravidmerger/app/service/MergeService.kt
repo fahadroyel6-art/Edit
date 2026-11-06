@@ -56,6 +56,7 @@ class MergeService : Service() {
         const val EXTRA_TOTAL_MS = "total_duration_ms"
         const val EXTRA_TOTAL_BYTES = "total_bytes"
         const val EXTRA_ISSUES = "issues"
+        const val EXTRA_DURATIONS = "durations_ms"
 
         fun start(
             context: Context,
@@ -72,6 +73,7 @@ class MergeService : Service() {
                 putExtra(EXTRA_FPS, report.recommendedFps)
                 putExtra(EXTRA_TOTAL_MS, report.totalDurationMs)
                 putExtra(EXTRA_TOTAL_BYTES, report.totalInputBytes)
+                putLongArrayExtra(EXTRA_DURATIONS, videos.map { it.durationMs }.toLongArray())
                 putExtra(
                     EXTRA_ISSUES,
                     report.issues.joinToString("; ") { "${it.field}: ${it.detail}" }
@@ -209,12 +211,16 @@ class MergeService : Service() {
             }
 
             try {
-                // Build lightweight VideoInfo objects from the URIs for the engine
+                // RC-6: pass the REAL per-input durations the UI already
+                // analysed. v2 sent durationMs = 0 for every input, which left
+                // the re-encode path without any timeline information.
+                val realDurations = intent.getLongArrayExtra(EXTRA_DURATIONS)
+
                 val infos = uris.mapIndexed { i, uri ->
                     VideoInfo(
                         uri = uri,
                         fileName = "input_${i + 1}",
-                        durationMs = 0L,
+                        durationMs = realDurations?.getOrNull(i) ?: 0L,
                         width = 0,
                         height = 0,
                         fps = 0.0,
@@ -240,7 +246,9 @@ class MergeService : Service() {
                     recommendedHeight = intent.getIntExtra(EXTRA_H, 1080),
                     recommendedFps = intent.getIntExtra(EXTRA_FPS, 30),
                     commonVideoCodec = "",
-                    totalDurationMs = intent.getLongExtra(EXTRA_TOTAL_MS, 0L),
+                    totalDurationMs = intent.getLongExtra(EXTRA_TOTAL_MS, 0L)
+                        .takeIf { it > 0L }
+                        ?: (intent.getLongArrayExtra(EXTRA_DURATIONS)?.sum() ?: 0L),
                     totalInputBytes = intent.getLongExtra(EXTRA_TOTAL_BYTES, 0L)
                 )
 
